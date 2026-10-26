@@ -3,247 +3,251 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Black Hole 🕳️</title>
+<title>Neon Dodge 🎮</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { height:100%; overflow:hidden; background:#000; touch-action:none; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:#05060a; touch-action:none;
+    font-family:system-ui,-apple-system,sans-serif; user-select:none; }
   canvas { display:block; }
-  #hint {
-    position:fixed; bottom:14px; left:0; right:0; text-align:center;
-    font-family:system-ui,-apple-system,sans-serif; font-size:12px;
-    color:rgba(255,255,255,.3); pointer-events:none; letter-spacing:2px;
-    animation:pulse 3s ease-in-out infinite;
+  #ui {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    color:#fff; pointer-events:none;
   }
-  @keyframes pulse { 0%,100%{opacity:.2} 50%{opacity:.6} }
+  #ui.hidden { display:none; }
+  #title { font-size:34px; font-weight:800; letter-spacing:2px;
+    background:linear-gradient(90deg,#00f5ff,#ff00e5); -webkit-background-clip:text;
+    background-clip:text; color:transparent; margin-bottom:10px; }
+  #sub { font-size:15px; color:rgba(255,255,255,.55); margin-bottom:28px; line-height:1.8; }
+  #btn {
+    pointer-events:auto; padding:15px 44px; font-size:18px; font-weight:700;
+    border:none; border-radius:50px; cursor:pointer; color:#05060a;
+    background:linear-gradient(90deg,#00f5ff,#a8ff00);
+    box-shadow:0 0 30px rgba(0,245,255,.5); transition:transform .15s;
+  }
+  #btn:active { transform:scale(.94); }
+  #score { position:fixed; top:18px; left:0; right:0; text-align:center;
+    color:#fff; font-size:26px; font-weight:800; letter-spacing:1px;
+    text-shadow:0 0 20px rgba(0,245,255,.8); pointer-events:none; }
+  #best { position:fixed; top:52px; left:0; right:0; text-align:center;
+    color:rgba(255,255,255,.4); font-size:13px; letter-spacing:1px; pointer-events:none; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">بکش • ببلع • منفجر کن</div>
+<div id="score">0</div>
+<div id="best">رکورد: 0</div>
+<div id="ui">
+  <div id="title">NEON DODGE</div>
+  <div id="sub">انگشتت رو بکش تا توپ حرکت کنه<br>از موانع فرار کن</div>
+  <button id="btn">شروع</button>
+</div>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W, H, DPR, CX, CY;
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const ui = document.getElementById('ui');
+const btn = document.getElementById('btn');
+
+let W, H, DPR;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
   cv.style.width = W + 'px'; cv.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  if (CX === undefined) { CX = W / 2; CY = H / 2; }
 }
 resize();
 addEventListener('resize', resize);
 
 const rand = (a, b) => a + Math.random() * (b - a);
-const TAU = Math.PI * 2;
 
-// ---- سیاهچاله ----
-const hole = {
-  x: CX, y: CY, tx: CX, ty: CY,
-  r: 26, // شعاع افق رویداد
-  angle: 0
-};
+// ---- وضعیت بازی ----
+let state = 'menu'; // menu | playing | over
+let score = 0;
+let best = +(localStorage.getItem('neonDodgeBest') || 0);
+bestEl.textContent = 'رکورد: ' + best;
 
-// ---- ستاره‌ها ----
-class Star {
-  constructor() { this.reset(true); }
-  reset(initial = false) {
-    this.ang = rand(0, TAU);
-    this.dist = initial ? rand(60, Math.max(W, H) * 0.7) : rand(Math.max(W, H) * 0.6, Math.max(W, H) * 0.9);
-    this.speed = rand(0.002, 0.012) * (60 / this.dist + 0.3);
-    this.size = rand(0.6, 2.2);
-    this.hue = rand(180, 320);
-    this.life = 1;
-    this.trail = [];
+const ball = { x: 0, y: 0, r: 14, targetX: 0, hue: 190 };
+let obstacles = [];
+let particles = [];
+let spawnTimer = 0;
+let spawnGap = 60; // فریم
+let speed = 3.5;
+let frame = 0;
+
+function resetGame() {
+  ball.x = W / 2;
+  ball.targetX = W / 2;
+  ball.y = H - 110;
+  obstacles = [];
+  particles = [];
+  score = 0;
+  frame = 0;
+  speed = 3.5;
+  spawnGap = 60;
+  spawnTimer = 0;
+  scoreEl.textContent = '0';
+}
+
+class Obstacle {
+  constructor() {
+    this.w = rand(70, Math.min(150, W * 0.35));
+    this.h = 22;
+    this.x = rand(0, W - this.w);
+    this.y = -this.h;
+    this.hue = rand(0, 360);
+    this.passed = false;
   }
   update() {
-    const dx = hole.x - this.x0(), dy = hole.y - this.y0();
-    const d = Math.hypot(dx, dy) || 1;
-    // سرعت زاویه‌ای بیشتر نزدیک سیاهچاله
-    this.speed = rand(0.002, 0.012) * (80 / d + 0.4);
-    this.ang += this.speed;
-    // کشیده شدن به داخل
-    this.dist -= (this.dist < 400 ? 0.6 : 0.15) * (1 + 200 / (d + 100));
-    this.trail.push({ x: this.x0(), y: this.y0(), a: 1 });
-    if (this.trail.length > 14) this.trail.shift();
-    this.trail.forEach(t => t.a *= 0.88);
-    // بلعیده شد؟
-    if (this.dist < hole.r * 0.8) {
-      explode(this.x0(), this.y0(), 10, this.hue);
-      this.reset();
-    }
+    this.y += speed;
   }
-  x0() { return hole.x + Math.cos(this.ang) * this.dist; }
-  y0() { return hole.y + Math.sin(this.ang) * this.dist; }
   draw() {
-    // دنباله
-    for (let i = 0; i < this.trail.length; i++) {
-      const t = this.trail[i];
-      const a = (i / this.trail.length) * 0.5;
-      ctx.globalAlpha = a;
-      ctx.fillStyle = `hsl(${this.hue},100%,70%)`;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, this.size * 0.6, 0, TAU);
-      ctx.fill();
-    }
-    // خود ستاره
-    const x = this.x0(), y = this.y0();
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = `hsl(${this.hue},100%,70%)`;
-    ctx.fillStyle = `hsl(${this.hue},100%,85%)`;
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = `hsl(${this.hue},100%,60%)`;
+    ctx.fillStyle = `hsl(${this.hue},100%,60%)`;
+    const r = 6;
     ctx.beginPath();
-    ctx.arc(x, y, this.size, 0, TAU);
+    ctx.roundRect(this.x, this.y, this.w, this.h, r);
     ctx.fill();
     ctx.shadowBlur = 0;
-  }
-}
-
-// ---- ذرات انفجار ----
-class Spark {
-  constructor(x, y, hue) {
-    const a = rand(0, TAU), s = rand(1, 7);
-    this.x = x; this.y = y;
-    this.vx = Math.cos(a) * s;
-    this.vy = Math.sin(a) * s;
-    this.life = 1;
-    this.decay = rand(0.01, 0.03);
-    this.hue = hue + rand(-20, 20);
-    this.r = rand(1, 3);
-  }
-  update() {
-    this.x += this.vx; this.y += this.vy;
-    this.vx *= 0.94; this.vy *= 0.94;
-    // جاذبه سیاهچاله
-    const dx = hole.x - this.x, dy = hole.y - this.y;
-    const d = Math.hypot(dx, dy) || 1;
-    if (d > hole.r) {
-      this.vx += (dx / d) * 0.15;
-      this.vy += (dy / d) * 0.15;
-    }
-    this.life -= this.decay;
-  }
-  draw() {
-    ctx.globalAlpha = Math.max(0, this.life);
-    ctx.fillStyle = `hsl(${this.hue},100%,65%)`;
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, TAU);
+    ctx.roundRect(this.x + 4, this.y + 3, this.w - 8, 4, 2);
     ctx.fill();
   }
 }
 
-// ---- موج (شوک‌ویو) ----
-class Shock {
-  constructor(x, y, hue) {
-    this.x = x; this.y = y; this.r = 5;
-    this.life = 1; this.hue = hue;
+function explode(x, y, hue, n = 18) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), s = rand(1, 7);
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 1, decay: rand(0.015, 0.04), hue, r: rand(1.5, 4)
+    });
   }
-  update() { this.r += 9; this.life -= 0.025; }
-  draw() {
-    ctx.globalAlpha = Math.max(0, this.life) * 0.7;
-    ctx.strokeStyle = `hsl(${this.hue},100%,70%)`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, TAU);
-    ctx.stroke();
-  }
-}
-
-const stars = [];
-for (let i = 0; i < 160; i++) stars.push(new Star());
-const sparks = [];
-const shocks = [];
-
-function explode(x, y, n, hue) {
-  for (let i = 0; i < n; i++) sparks.push(new Spark(x, y, hue));
 }
 
 // ---- کنترل لمسی ----
-let dragging = false;
-cv.addEventListener('pointerdown', e => {
-  dragging = true;
-  hole.tx = e.clientX; hole.ty = e.clientY;
-  // موج از محل لمس
-  shocks.push(new Shock(e.clientX, e.clientY, 280));
-  explode(e.clientX, e.clientY, 20, 280);
+let touching = false;
+function setTarget(clientX) {
+  ball.targetX = Math.max(ball.r, Math.min(W - ball.r, clientX));
+}
+cv.addEventListener('pointerdown', e => { touching = true; setTarget(e.clientX); });
+cv.addEventListener('pointermove', e => { if (touching) setTarget(e.clientX); });
+cv.addEventListener('pointerup', () => touching = false);
+cv.addEventListener('pointercancel', () => touching = false);
+
+// ---- شروع ----
+btn.addEventListener('click', () => {
+  resetGame();
+  ui.classList.add('hidden');
+  state = 'playing';
 });
-cv.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  hole.tx = e.clientX; hole.ty = e.clientY;
-});
-cv.addEventListener('pointerup', () => dragging = false);
-cv.addEventListener('pointerleave', () => dragging = false);
+
+function gameOver() {
+  state = 'over';
+  explode(ball.x, ball.y, ball.hue, 40);
+  if (score > best) {
+    best = score;
+    localStorage.setItem('neonDodgeBest', best);
+    bestEl.textContent = 'رکورد: ' + best;
+  }
+  ui.classList.remove('hidden');
+  document.getElementById('title').textContent = 'باختی!';
+  document.getElementById('sub').innerHTML =
+    `امتیازت: <b style="color:#00f5ff">${score}</b><br>` +
+    (score >= best ? '🏆 رکورد جدید!' : `بهترین: ${best}`) +
+    '<br>دوباره تلاش کن';
+  btn.textContent = 'دوباره';
+}
 
 // ---- حلقه ----
 function loop() {
-  // پس‌زمینه با محو شدن (افکت دنباله)
+  // پس‌زمینه
   ctx.globalAlpha = 1;
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillStyle = 'rgba(5,6,10,0.28)';
   ctx.fillRect(0, 0, W, H);
 
-  // حرکت نرم سیاهچاله
-  hole.x += (hole.tx - hole.x) * 0.08;
-  hole.y += (hole.ty - hole.y) * 0.08;
-  hole.angle += 0.02;
+  if (state === 'playing') {
+    frame++;
 
-  // هاله گاز دور سیاهچاله
-  const g = ctx.createRadialGradient(hole.x, hole.y, hole.r * 0.5, hole.x, hole.y, hole.r * 5);
-  g.addColorStop(0, 'rgba(180,80,255,0.35)');
-  g.addColorStop(0.3, 'rgba(80,150,255,0.18)');
-  g.addColorStop(0.6, 'rgba(255,80,200,0.08)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(hole.x, hole.y, hole.r * 5, 0, TAU);
-  ctx.fill();
+    // سخت‌تر شدن تدریجی
+    speed = 3.5 + frame * 0.0025;
+    spawnGap = Math.max(28, 60 - frame * 0.02);
 
-  // حلقه چرخان (accretion disk)
-  ctx.save();
-  ctx.translate(hole.x, hole.y);
-  ctx.rotate(hole.angle);
-  for (let i = 0; i < 3; i++) {
-    ctx.globalAlpha = 0.5 - i * 0.12;
-    ctx.strokeStyle = ['#b450ff', '#50a0ff', '#ff50c8'][i];
-    ctx.lineWidth = 2.5 - i * 0.6;
+    // حرکت نرم توپ
+    ball.x += (ball.targetX - ball.x) * 0.25;
+
+    // تولید مانع
+    spawnTimer++;
+    if (spawnTimer >= spawnGap) {
+      spawnTimer = 0;
+      obstacles.push(new Obstacle());
+    }
+
+    // به‌روزرسانی موانع
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i];
+      o.update();
+      o.draw();
+
+      // برخورد دایره با مستطیل
+      const cx = Math.max(o.x, Math.min(ball.x, o.x + o.w));
+      const cy = Math.max(o.y, Math.min(ball.y, o.y + o.h));
+      const d = Math.hypot(ball.x - cx, ball.y - cy);
+      if (d < ball.r) {
+        gameOver();
+      }
+
+      // رد شدن و امتیاز
+      if (!o.passed && o.y > ball.y) {
+        o.passed = true;
+        score++;
+        scoreEl.textContent = score;
+        explode(o.x + o.w / 2, o.y, o.hue, 6);
+      }
+
+      if (o.y > H + 50) obstacles.splice(i, 1);
+    }
+  } else {
+    // نمایش موانع در حالت پایان
+    for (const o of obstacles) o.draw();
+  }
+
+  // ذرات
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.94; p.vy *= 0.94;
+    p.life -= p.decay;
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = `hsl(${p.hue},100%,65%)`;
     ctx.beginPath();
-    ctx.ellipse(0, 0, hole.r * (2.2 + i * 0.5), hole.r * (0.9 + i * 0.3), i * 0.5, 0, TAU);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // ستاره‌ها
-  for (const s of stars) { s.update(); s.draw(); }
-
-  // ذرات و موج‌ها
-  for (let i = sparks.length - 1; i >= 0; i--) {
-    sparks[i].update(); sparks[i].draw();
-    if (sparks[i].life <= 0) sparks.splice(i, 1);
-  }
-  for (let i = shocks.length - 1; i >= 0; i--) {
-    shocks[i].update(); shocks[i].draw();
-    if (shocks[i].life <= 0) shocks.splice(i, 1);
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    if (p.life <= 0) particles.splice(i, 1);
   }
 
-  // خود سیاهچاله (مشکی مطلق)
+  // توپ
+  if (state !== 'menu') {
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = `hsl(${ball.hue},100%,60%)`;
+    ctx.fillStyle = `hsl(${ball.hue},100%,70%)`;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // هسته سفید
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   ctx.globalAlpha = 1;
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
-  ctx.fill();
-
-  // درخشش دور افق رویداد
-  ctx.strokeStyle = 'rgba(200,120,255,0.9)';
-  ctx.lineWidth = 1.5;
-  ctx.shadowBlur = 25;
-  ctx.shadowColor = '#b450ff';
-  ctx.beginPath();
-  ctx.arc(hole.x, hole.y, hole.r + 1, 0, TAU);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
   requestAnimationFrame(loop);
 }
 loop();

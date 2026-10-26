@@ -3,117 +3,247 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Neon Particles ✨</title>
+<title>Black Hole 🕳️</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { height:100%; overflow:hidden; background:#05060a; touch-action:none; }
+  html,body { height:100%; overflow:hidden; background:#000; touch-action:none; }
   canvas { display:block; }
   #hint {
-    position:fixed; bottom:16px; left:0; right:0; text-align:center;
-    font-family:system-ui,-apple-system,sans-serif; font-size:13px;
-    color:rgba(255,255,255,.35); pointer-events:none; letter-spacing:1px;
+    position:fixed; bottom:14px; left:0; right:0; text-align:center;
+    font-family:system-ui,-apple-system,sans-serif; font-size:12px;
+    color:rgba(255,255,255,.3); pointer-events:none; letter-spacing:2px;
     animation:pulse 3s ease-in-out infinite;
   }
-  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:.7} }
+  @keyframes pulse { 0%,100%{opacity:.2} 50%{opacity:.6} }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">لمس کن • بکش • ول کن</div>
+<div id="hint">بکش • ببلع • منفجر کن</div>
 <script>
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-let W, H, DPR;
+let W, H, DPR, CX, CY;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
   cv.style.width = W + 'px'; cv.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (CX === undefined) { CX = W / 2; CY = H / 2; }
 }
 resize();
 addEventListener('resize', resize);
 
-const colors = ['#00f5ff', '#ff00e5', '#a8ff00', '#ff8a00', '#8a5cff'];
 const rand = (a, b) => a + Math.random() * (b - a);
-const pick = arr => arr[(Math.random() * arr.length) | 0];
+const TAU = Math.PI * 2;
 
-class Particle {
-  constructor(x, y, burst = false) {
-    this.x = x; this.y = y;
-    const ang = rand(0, Math.PI * 2);
-    const spd = burst ? rand(2, 9) : rand(0.2, 1.2);
-    this.vx = Math.cos(ang) * spd;
-    this.vy = Math.sin(ang) * spd;
-    this.r = burst ? rand(1.5, 4) : rand(0.8, 2.5);
-    this.color = pick(colors);
+// ---- سیاهچاله ----
+const hole = {
+  x: CX, y: CY, tx: CX, ty: CY,
+  r: 26, // شعاع افق رویداد
+  angle: 0
+};
+
+// ---- ستاره‌ها ----
+class Star {
+  constructor() { this.reset(true); }
+  reset(initial = false) {
+    this.ang = rand(0, TAU);
+    this.dist = initial ? rand(60, Math.max(W, H) * 0.7) : rand(Math.max(W, H) * 0.6, Math.max(W, H) * 0.9);
+    this.speed = rand(0.002, 0.012) * (60 / this.dist + 0.3);
+    this.size = rand(0.6, 2.2);
+    this.hue = rand(180, 320);
     this.life = 1;
-    this.decay = burst ? rand(0.008, 0.02) : rand(0.002, 0.006);
-    this.burst = burst;
+    this.trail = [];
   }
-  update(px, py) {
-    if (px !== null) {
-      const dx = px - this.x, dy = py - this.y;
-      const d = Math.hypot(dx, dy) || 1;
-      if (d < 260) {
-        const force = (1 - d / 260) * 0.35;
-        this.vx += (dx / d) * force;
-        this.vy += (dy / d) * force;
-      }
+  update() {
+    const dx = hole.x - this.x0(), dy = hole.y - this.y0();
+    const d = Math.hypot(dx, dy) || 1;
+    // سرعت زاویه‌ای بیشتر نزدیک سیاهچاله
+    this.speed = rand(0.002, 0.012) * (80 / d + 0.4);
+    this.ang += this.speed;
+    // کشیده شدن به داخل
+    this.dist -= (this.dist < 400 ? 0.6 : 0.15) * (1 + 200 / (d + 100));
+    this.trail.push({ x: this.x0(), y: this.y0(), a: 1 });
+    if (this.trail.length > 14) this.trail.shift();
+    this.trail.forEach(t => t.a *= 0.88);
+    // بلعیده شد؟
+    if (this.dist < hole.r * 0.8) {
+      explode(this.x0(), this.y0(), 10, this.hue);
+      this.reset();
     }
-    this.vx *= 0.96; this.vy *= 0.96;
+  }
+  x0() { return hole.x + Math.cos(this.ang) * this.dist; }
+  y0() { return hole.y + Math.sin(this.ang) * this.dist; }
+  draw() {
+    // دنباله
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = this.trail[i];
+      const a = (i / this.trail.length) * 0.5;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = `hsl(${this.hue},100%,70%)`;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, this.size * 0.6, 0, TAU);
+      ctx.fill();
+    }
+    // خود ستاره
+    const x = this.x0(), y = this.y0();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = `hsl(${this.hue},100%,70%)`;
+    ctx.fillStyle = `hsl(${this.hue},100%,85%)`;
+    ctx.beginPath();
+    ctx.arc(x, y, this.size, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ---- ذرات انفجار ----
+class Spark {
+  constructor(x, y, hue) {
+    const a = rand(0, TAU), s = rand(1, 7);
+    this.x = x; this.y = y;
+    this.vx = Math.cos(a) * s;
+    this.vy = Math.sin(a) * s;
+    this.life = 1;
+    this.decay = rand(0.01, 0.03);
+    this.hue = hue + rand(-20, 20);
+    this.r = rand(1, 3);
+  }
+  update() {
     this.x += this.vx; this.y += this.vy;
-
-    if (this.x < 0 || this.x > W) this.vx *= -1;
-    if (this.y < 0 || this.y > H) this.vy *= -1;
-    this.x = Math.max(0, Math.min(W, this.x));
-    this.y = Math.max(0, Math.min(H, this.y));
-
+    this.vx *= 0.94; this.vy *= 0.94;
+    // جاذبه سیاهچاله
+    const dx = hole.x - this.x, dy = hole.y - this.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (d > hole.r) {
+      this.vx += (dx / d) * 0.15;
+      this.vy += (dy / d) * 0.15;
+    }
     this.life -= this.decay;
   }
   draw() {
     ctx.globalAlpha = Math.max(0, this.life);
-    ctx.shadowBlur = this.burst ? 18 : 10;
-    ctx.shadowColor = this.color;
-    ctx.fillStyle = this.color;
+    ctx.fillStyle = `hsl(${this.hue},100%,65%)`;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.arc(this.x, this.y, this.r, 0, TAU);
     ctx.fill();
   }
 }
 
-const particles = [];
-for (let i = 0; i < 120; i++) particles.push(new Particle(rand(0, W), rand(0, H)));
+// ---- موج (شوک‌ویو) ----
+class Shock {
+  constructor(x, y, hue) {
+    this.x = x; this.y = y; this.r = 5;
+    this.life = 1; this.hue = hue;
+  }
+  update() { this.r += 9; this.life -= 0.025; }
+  draw() {
+    ctx.globalAlpha = Math.max(0, this.life) * 0.7;
+    ctx.strokeStyle = `hsl(${this.hue},100%,70%)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, TAU);
+    ctx.stroke();
+  }
+}
 
-let pointer = { x: null, y: null, active: false };
+const stars = [];
+for (let i = 0; i < 160; i++) stars.push(new Star());
+const sparks = [];
+const shocks = [];
 
-cv.addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+function explode(x, y, n, hue) {
+  for (let i = 0; i < n; i++) sparks.push(new Spark(x, y, hue));
+}
+
+// ---- کنترل لمسی ----
+let dragging = false;
 cv.addEventListener('pointerdown', e => {
-  pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true;
-  for (let i = 0; i < 45; i++) particles.push(new Particle(e.clientX, e.clientY, true));
+  dragging = true;
+  hole.tx = e.clientX; hole.ty = e.clientY;
+  // موج از محل لمس
+  shocks.push(new Shock(e.clientX, e.clientY, 280));
+  explode(e.clientX, e.clientY, 20, 280);
 });
-cv.addEventListener('pointerup', () => { pointer.active = false; });
-cv.addEventListener('pointerleave', () => { pointer.active = false; });
+cv.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  hole.tx = e.clientX; hole.ty = e.clientY;
+});
+cv.addEventListener('pointerup', () => dragging = false);
+cv.addEventListener('pointerleave', () => dragging = false);
 
+// ---- حلقه ----
 function loop() {
+  // پس‌زمینه با محو شدن (افکت دنباله)
   ctx.globalAlpha = 1;
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = 'rgba(5,6,10,0.18)';
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.fillRect(0, 0, W, H);
 
-  const px = pointer.active ? pointer.x : null;
-  const py = pointer.active ? pointer.y : null;
+  // حرکت نرم سیاهچاله
+  hole.x += (hole.tx - hole.x) * 0.08;
+  hole.y += (hole.ty - hole.y) * 0.08;
+  hole.angle += 0.02;
 
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.update(px, py);
-    p.draw();
-    if (p.life <= 0) particles.splice(i, 1);
+  // هاله گاز دور سیاهچاله
+  const g = ctx.createRadialGradient(hole.x, hole.y, hole.r * 0.5, hole.x, hole.y, hole.r * 5);
+  g.addColorStop(0, 'rgba(180,80,255,0.35)');
+  g.addColorStop(0.3, 'rgba(80,150,255,0.18)');
+  g.addColorStop(0.6, 'rgba(255,80,200,0.08)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(hole.x, hole.y, hole.r * 5, 0, TAU);
+  ctx.fill();
+
+  // حلقه چرخان (accretion disk)
+  ctx.save();
+  ctx.translate(hole.x, hole.y);
+  ctx.rotate(hole.angle);
+  for (let i = 0; i < 3; i++) {
+    ctx.globalAlpha = 0.5 - i * 0.12;
+    ctx.strokeStyle = ['#b450ff', '#50a0ff', '#ff50c8'][i];
+    ctx.lineWidth = 2.5 - i * 0.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, hole.r * (2.2 + i * 0.5), hole.r * (0.9 + i * 0.3), i * 0.5, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ستاره‌ها
+  for (const s of stars) { s.update(); s.draw(); }
+
+  // ذرات و موج‌ها
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    sparks[i].update(); sparks[i].draw();
+    if (sparks[i].life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = shocks.length - 1; i >= 0; i--) {
+    shocks[i].update(); shocks[i].draw();
+    if (shocks[i].life <= 0) shocks.splice(i, 1);
   }
 
-  while (particles.length < 100) particles.push(new Particle(rand(0, W), rand(0, H)));
-
+  // خود سیاهچاله (مشکی مطلق)
   ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
+  ctx.fill();
+
+  // درخشش دور افق رویداد
+  ctx.strokeStyle = 'rgba(200,120,255,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 25;
+  ctx.shadowColor = '#b450ff';
+  ctx.beginPath();
+  ctx.arc(hole.x, hole.y, hole.r + 1, 0, TAU);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
   requestAnimationFrame(loop);
 }
 loop();

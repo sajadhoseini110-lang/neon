@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Neon Particles ✨</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; background:#05060a; touch-action:none; }
+  canvas { display:block; }
+  #hint {
+    position:fixed; bottom:16px; left:0; right:0; text-align:center;
+    font-family:system-ui,-apple-system,sans-serif; font-size:13px;
+    color:rgba(255,255,255,.35); pointer-events:none; letter-spacing:1px;
+    animation:pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:.7} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">لمس کن • بکش • ول کن</div>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+const colors = ['#00f5ff', '#ff00e5', '#a8ff00', '#ff8a00', '#8a5cff'];
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+
+class Particle {
+  constructor(x, y, burst = false) {
+    this.x = x; this.y = y;
+    const ang = rand(0, Math.PI * 2);
+    const spd = burst ? rand(2, 9) : rand(0.2, 1.2);
+    this.vx = Math.cos(ang) * spd;
+    this.vy = Math.sin(ang) * spd;
+    this.r = burst ? rand(1.5, 4) : rand(0.8, 2.5);
+    this.color = pick(colors);
+    this.life = 1;
+    this.decay = burst ? rand(0.008, 0.02) : rand(0.002, 0.006);
+    this.burst = burst;
+  }
+  update(px, py) {
+    if (px !== null) {
+      const dx = px - this.x, dy = py - this.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d < 260) {
+        const force = (1 - d / 260) * 0.35;
+        this.vx += (dx / d) * force;
+        this.vy += (dy / d) * force;
+      }
+    }
+    this.vx *= 0.96; this.vy *= 0.96;
+    this.x += this.vx; this.y += this.vy;
+
+    if (this.x < 0 || this.x > W) this.vx *= -1;
+    if (this.y < 0 || this.y > H) this.vy *= -1;
+    this.x = Math.max(0, Math.min(W, this.x));
+    this.y = Math.max(0, Math.min(H, this.y));
+
+    this.life -= this.decay;
+  }
+  draw() {
+    ctx.globalAlpha = Math.max(0, this.life);
+    ctx.shadowBlur = this.burst ? 18 : 10;
+    ctx.shadowColor = this.color;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+const particles = [];
+for (let i = 0; i < 120; i++) particles.push(new Particle(rand(0, W), rand(0, H)));
+
+let pointer = { x: null, y: null, active: false };
+
+cv.addEventListener('pointermove', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+cv.addEventListener('pointerdown', e => {
+  pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true;
+  for (let i = 0; i < 45; i++) particles.push(new Particle(e.clientX, e.clientY, true));
+});
+cv.addEventListener('pointerup', () => { pointer.active = false; });
+cv.addEventListener('pointerleave', () => { pointer.active = false; });
+
+function loop() {
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(5,6,10,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  const px = pointer.active ? pointer.x : null;
+  const py = pointer.active ? pointer.y : null;
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.update(px, py);
+    p.draw();
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  while (particles.length < 100) particles.push(new Particle(rand(0, W), rand(0, H)));
+
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
